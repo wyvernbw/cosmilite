@@ -32,7 +32,9 @@ async fn main() {
                         Greetings::HiBack
                     );
                     packet_idx += 1;
-                    let packet = cosmilite::packet::Packet::new(Greetings::HiBack, addr).reliable();
+                    let packet = cosmilite::packet::Packet::new(Greetings::HiBack, addr)
+                        .reliable()
+                        .ordered();
                     let _ = server_connection.send(packet);
                 }
                 SocketEvent::Connected(addr) => {
@@ -54,7 +56,7 @@ async fn main() {
 
     // client task
     let handle = tokio::task::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(1));
         loop {
             interval.tick().await;
             let packet = cosmilite::packet::Packet::new(Greetings::Hi, server_addr);

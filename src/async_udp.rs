@@ -142,74 +142,179 @@ where
     SendMsg: serde::Serialize + std::marker::Send + 'static,
     RecvMsg: serde::de::DeserializeOwned + std::marker::Send + 'static,
 {
-    /// Sends a message to the remote endpoint.
+    /// Sends a packet through the connection.
     ///
-    /// This method attempts to send the provided `msg` to the remote endpoint.
+    /// This method sends the specified packet through the connection. The packet should be of type `Packet<SendMsg>`.
+    /// If the sending operation succeeds, `Ok(())` is returned. Otherwise, if an error occurs during the sending process,
+    /// a `SendError<Packet<SendMsg>>` is returned.
     ///
-    /// # Errors
+    /// # Arguments
     ///
-    /// Returns a `SendError` if the message failed to be sent.
+    /// * `packet` - The packet to be sent through the connection.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the packet is successfully sent.
+    /// * `Err(SendError<Packet<SendMsg>>)` if an error occurs during the sending process.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// # use tokio::sync::mpsc;
-    /// # #[derive(serde::Serialize, serde::Deserialize)] struct MyMessage {}
-    /// # #[tokio::main] async fn main() {
-    /// # let (sender, mut receiver) = mpsc::channel(100);
-    /// # let connection = Connection::new(sender, receiver);
-    /// let message = MyMessage { /* Initialize your message */ };
-    /// if let Err(err) = connection.send(message) {
-    ///     eprintln!("Failed to send message: {:?}", err);
+    /// use cosmilite::async_udp::Connection;
+    /// use cosmilite::packet::Packet;
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Serialize, Deserialize, Clone)]
+    /// enum Greetings {
+    ///     Hello,
+    ///     Goodbye,
     /// }
-    /// # }
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     // Initialize the server connection
+    ///     # let server_addr = "127.0.0.1:12345".parse().unwrap();
+    ///     # let socket = cosmilite::async_udp::bind_single::<Greetings>(server_addr)
+    ///     #     .await
+    ///     #     .unwrap();
+    ///     # let mut server_connection = socket.start_polling().await.unwrap();
+    ///
+    ///     // Send a packet
+    ///     let packet = cosmilite::packet::Packet::new(Greetings::Hello, server_addr);
+    ///     let result = server_connection.send(packet);
+    ///
+    ///     match result {
+    ///         Ok(()) => {
+    ///             // Packet sent successfully
+    ///         }
+    ///         Err(error) => {
+    ///             // Handle send error
+    ///         }
+    ///     }
+    /// }
     /// ```
+    ///
+    /// In the above example, the `send` method is used to send a `Packet` through the server connection. The packet is
+    /// created using `Packet::new` with a payload of type `Greetings::Hello` and the server address. The result of the
+    /// sending operation is then handled using a `match` statement to check if the packet was sent successfully or if
+    /// an error occurred during the sending process. The example uses the `tokio::main` macro to run the asynchronous
+    /// `main` function.
     pub fn send(&self, packet: Packet<SendMsg>) -> Result<(), SendError<Packet<SendMsg>>> {
         self.sender.send(packet)
     }
 
-    /// Receives a message from the remote endpoint.
+    /// Receives a packet from the established connection.
     ///
-    /// This method asynchronously waits for a message to be received from the remote endpoint.
-    /// It returns `Some(received_message)` when a message is received, or `None` if the connection has been closed.
+    /// This function asynchronously waits for a packet to be received from the underlying connection.
+    /// It returns an `Option` that contains a `SocketEvent` representing the received packet.
+    ///
+    /// # Returns
+    ///
+    /// This function returns an `Option` that represents the received packet.
+    /// - If a packet is received, `Some(SocketEvent)` is returned, where `SocketEvent` is a type representing
+    ///   the received packet or an error.
+    /// - If no packet is received, `None` is returned.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// # use tokio::sync::mpsc;
-    /// # #[derive(serde::Serialize, serde::Deserialize)] struct MyMessage {}
-    /// # #[tokio::main] async fn main() {
-    /// # let (sender, mut receiver) = mpsc::channel(100);
-    /// # let connection = Connection::new(sender, receiver);
-    /// if let Some(received_message) = connection.recv().await {
-    ///     // Process the received message
+    /// use serde::{Deserialize, Serialize};
+    /// #[derive(Serialize, Deserialize, Clone)]
+    /// enum Greetings {
+    ///     Hello,
+    ///     Goodbye,
     /// }
-    /// # }
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     use cosmilite::packet::Packet;
+    ///
+    ///     use cosmilite::async_udp::Connection;
+    ///     use cosmilite::events::SocketEvent;
+    ///
+    ///     # let server_addr = "127.0.0.1:12345".parse().unwrap();
+    ///     # let socket = cosmilite::async_udp::bind_single::<Greetings>(server_addr)
+    ///     #     .await
+    ///     #     .unwrap();
+    ///     # let mut server_connection = socket.start_polling().await.unwrap();
+    ///
+    ///     tokio::task::spawn(async move {
+    ///         if let Some(event) = server_connection.recv().await {
+    ///             match event {
+    ///                 SocketEvent::Message(msg, addr) => todo!(),
+    ///                 SocketEvent::Connected(addr) => todo!(),
+    ///                 SocketEvent::Disconnected(addr) => todo!(),
+    ///             }
+    ///         }
+    ///     });
+    /// }
     /// ```
     pub async fn recv(&mut self) -> Option<SocketEvent<RecvMsg>> {
         self.receiver.recv().await
     }
 
-    /// Tries to receive a message from the remote endpoint without blocking.
+    /// Attempts to receive a socket event from the connection without blocking.
     ///
-    /// This method attempts to receive a message from the remote endpoint without blocking. It returns a `Result` indicating whether a message was successfully received or an error occurred.
+    /// This method tries to receive a socket event from the connection. If an event is available,
+    /// it returns `Ok(SocketEvent<RecvMsg>)` with the received event. If no event is currently
+    /// available, it returns `Err(TryRecvError)`. This method does not block the execution and
+    /// immediately returns the result.
     ///
-    /// # Errors
+    /// # Returns
     ///
-    /// Returns a `TryRecvError` if no message is currently available for reception. The error indicates that the receiver channel is empty.
+    /// * `Ok(SocketEvent<RecvMsg>)` if a socket event is successfully received.
+    /// * `Err(TryRecvError)` if no event is currently available.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// match connection.try_recv() {
-    ///     Ok(SocketEvent::Message(msg)) => {
-    ///         // Process the received message
-    ///     }
-    ///     Err(TryRecvError) => {
-    ///         // Handle the case when no message is available
+    /// use cosmilite::async_udp::Connection;
+    /// use cosmilite::events::SocketEvent;
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Serialize, Deserialize, Clone, Debug)]
+    /// enum Greetings {
+    ///     Hello,
+    ///     Goodbye,
+    /// }
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     // Initialize the connection
+    ///     let client_addr = "127.0.0.1:0".parse().unwrap();
+    ///     let socket = cosmilite::async_udp::bind_single::<Greetings>(client_addr)
+    ///         .await
+    ///         .unwrap();
+    ///     let mut connection = socket.start_polling().await.unwrap();
+    ///
+    ///     // Attempt to receive a socket event
+    ///     match connection.try_recv() {
+    ///         Ok(event) => {
+    ///             // Process the received socket event
+    ///             match event {
+    ///                 SocketEvent::Message(msg, addr) => {
+    ///                     // Handle message event
+    ///                 }
+    ///                 SocketEvent::Connected(addr) => {
+    ///                     // Handle connected event
+    ///                 }
+    ///                 SocketEvent::Disconnected(addr) => {
+    ///                     // Handle disconnected event
+    ///                 }
+    ///             }
+    ///         }
+    ///         Err(error) => {
+    ///             // Handle try receive error
+    ///         }
     ///     }
     /// }
     /// ```
+    ///
+    /// In the above example, the `try_recv` method is used to attempt to receive a socket event from the connection.
+    /// The result is then handled using a `match` statement to check if an event is successfully received or if an error
+    /// occurs when trying to receive an event. If an event is received, it is further processed based on its type. The
+    /// example uses the `tokio::main` macro to run the asynchronous `main` function and includes the definition of the `Greetings`
+    /// enum outside of the `main` function.
     pub fn try_recv(&mut self) -> Result<SocketEvent<RecvMsg>, TryRecvError> {
         self.receiver.try_recv()
     }
