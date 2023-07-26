@@ -1,5 +1,6 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+#[derive(Clone, Debug)]
 pub struct Packet<T>
 where
     T: Serialize + DeserializeOwned,

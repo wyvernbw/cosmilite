@@ -23,17 +23,24 @@ async fn multitype() -> Result<(), Box<dyn std::error::Error>> {
         let mut interval = tokio::time::interval(Duration::from_millis(15));
         for _ in 0..MSG_COUNT {
             let packet = match rand::random::<bool>() {
-                true => client.send(cosmilite::packet::Packet::new(
-                    (rand::random::<u8>(), rand::random::<u8>()),
-                    server_addr,
-                )),
-                false => client.send(cosmilite::packet::Packet::new(
-                    ("text".to_string(), rand::random::<u32>()),
-                    server_addr,
-                )),
+                true => {
+                    client
+                        .send(cosmilite::packet::Packet::new(
+                            (rand::random::<u8>(), rand::random::<u8>()),
+                            server_addr,
+                        ))
+                        .await
+                }
+                false => {
+                    client
+                        .send(cosmilite::packet::Packet::new(
+                            ("text".to_string(), rand::random::<u32>()),
+                            server_addr,
+                        ))
+                        .await
+                }
             };
             interval.tick().await;
-            let _ = packet.await;
         }
     });
     select! {

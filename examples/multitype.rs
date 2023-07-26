@@ -38,24 +38,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             interval.tick().await;
             let send_op = match rand::random::<bool>() {
                 // send a dog
-                true => client.send(Packet::new(
-                    Dog {
-                        name: "woofers".to_string(),
-                        good_boy: true,
-                    },
-                    server_addr,
-                )),
+                true => {
+                    client
+                        .send(Packet::new(
+                            Dog {
+                                name: "woofers".to_string(),
+                                good_boy: true,
+                            },
+                            server_addr,
+                        ))
+                        .await
+                }
                 // send a cat
-                false => client.send(Packet::new(
-                    Cat {
-                        name: "meowy".to_string(),
-                        meow_count: 5,
-                        is_hungry: false,
-                    },
-                    server_addr,
-                )),
+                false => {
+                    client
+                        .send(Packet::new(
+                            Cat {
+                                name: "meowy".to_string(),
+                                meow_count: 5,
+                                is_hungry: false,
+                            },
+                            server_addr,
+                        ))
+                        .await
+                }
             };
-            let _ = send_op.await;
         }
     });
 

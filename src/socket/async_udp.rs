@@ -5,7 +5,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::packet::PacketInner;
 
-use super::AsyncSocket;
+use super::{AsyncSocket, SocketMarker};
 
 pub struct Socket<S: crate::packet::Serializer = bincode::DefaultOptions> {
     socket: tokio::net::UdpSocket,
@@ -65,8 +65,20 @@ impl<S: std::fmt::Debug> Display for SendError<S> {
 
 impl<SerError: std::fmt::Debug> std::error::Error for SendError<SerError> {}
 
-#[async_trait]
-impl<S: crate::packet::Serializer + Send + Sync> AsyncSocket<S> for Socket<S> {
+impl Socket {
+    pub async fn bind(addr: SocketAddr) -> Self {
+        use tokio::net::UdpSocket;
+        let socket = UdpSocket::bind(addr).await.unwrap();
+        tracing::info!("🦑 Socket bound to {}!", socket.local_addr().unwrap());
+        Socket {
+            socket,
+            serializer: bincode::DefaultOptions::new(),
+        }
+    }
+}
+
+impl<S: crate::packet::Serializer + Send + Sync> AsyncSocket for Socket<S> {
+    type Serializer = S;
     fn local_addr(&self) -> SocketAddr {
         self.socket.local_addr().unwrap()
     }
@@ -95,6 +107,60 @@ impl<S: crate::packet::Serializer + Send + Sync> AsyncSocket<S> for Socket<S> {
         };
         Event(addr, SocketEvent::Received(data))
     }
+    fn try_recv<T: DeserializeOwned + Send>(&self) -> Option<crate::event::Event<T>> {
+        use crate::event::Event;
+        use crate::event::SocketEvent;
+
+        let mut buf = [0; 1024];
+        let Ok((len, addr)) = self.socket.try_peek_from(&mut buf) else {
+			return None;
+		};
+        let data = &buf[..len];
+        let inner_packet = bincode::deserialize_from::<_, PacketInner>(data).unwrap();
+        let data = S::deserialize::<T>(&inner_packet.data);
+        if let Some(data) = data {
+            self.socket
+                .try_recv_from(&mut buf)
+                .map(|_| Event(addr, SocketEvent::Received(data)))
+                .ok()
+        } else {
+            None
+        }
+    }
+    /// Asynchronously receives data from a socket and deserializes it into an event of type `Event<T>`.
+    ///
+    /// Returns an `Option` containing an `Event<T>` if data is successfully received and deserialized.
+    /// Returns `None` if a message of a different type is received first. Said message needs to be handled separately. If you want to discard it, use `recv_filtered<T>()` instead.
+    ///
+    /// # Example
+    ///
+    /// The `recv<T>()` function is typically used in an asynchronous context to receive and handle events of different types.
+    ///
+    /// ```rust
+    /// # use crate::event::{Event, SocketEvent};
+    /// #
+    /// # async fn example(server: &Server) {
+    /// loop {
+    ///     if let Some(Event(_addr, SocketEvent::Received(dog))) = server.recv::<Dog>().await {
+    ///         tracing::info!("🐕 Received dog: {:?}", dog);
+    ///     }
+    ///     if let Some(Event(_addr, SocketEvent::Received(cat))) = server.recv::<Cat>().await {
+    ///         tracing::info!("🐈 Received cat: {:?}", cat);
+    ///     }
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// In this example, the function is called within a loop to continuously receive and handle events.
+    /// The type parameter `<T>` represents the type of event expected to be received.
+    ///
+    /// # Behavior
+    ///
+    /// 1. The function first attempts to receive data from the socket.
+    /// 2. If data is available, it deserializes the received data using the `bincode` crate and extracts the inner packet.
+    /// 3. It then attempts to deserialize the inner packet's data into the specified type `T`.
+    /// 4. If the deserialization succeeds, it receives the complete data from the socket and constructs an `Event<T>` with the received data and the source address.
+    /// 5. If the deserialization fails or no data is available, it returns `None`.
     async fn recv<T: DeserializeOwned + Send>(&self) -> Option<crate::event::Event<T>> {
         use crate::event::Event;
         use crate::event::SocketEvent;
@@ -127,3 +193,5 @@ impl<S: crate::packet::Serializer + Send + Sync> AsyncSocket<S> for Socket<S> {
         Ok(())
     }
 }
+
+impl SocketMarker for Socket {}
